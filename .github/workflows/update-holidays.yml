@@ -1,0 +1,77 @@
+name: Update Holiday Data
+
+on:
+  schedule:
+    - cron: "0 0 * * 0" # Every Sunday at 00:00 UTC (09:00 JST)
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Generate holiday data
+        run: cd cmd/genholidays && go run main.go -output ../../holidays_data.go
+
+      - name: Run tests
+        run: go test -race -count=1 ./...
+
+      - name: Create Pull Request
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet holidays_data.go; then
+            echo "No changes detected"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="update-holiday-data"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add holidays_data.go
+          git commit -m "update holiday data from Cabinet Office CSV"
+          # Force-push to overwrite the previous update branch
+          git push -f origin "$branch"
+          if ! gh pr list --head "$branch" --state open | grep -q .; then
+            gh pr create \
+              --title "Update holiday data" \
+              --body "Automated update of holiday data from the Cabinet Office CSV.
+
+          Source: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv" \
+              --base main \
+              --head "$branch"
+          fi
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token
+        if: steps.create-pr.outputs.created == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Approve and auto-merge
+        if: steps.create-pr.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          branch="${{ steps.create-pr.outputs.branch }}"
+          gh pr review "$branch" --approve
+          gh pr merge "$branch" --auto --squash

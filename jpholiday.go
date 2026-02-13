@@ -112,6 +112,8 @@ func (c *Calendar) HolidaysBetween(from, to time.Time) []Holiday {
 }
 
 // Holidays returns all holidays (built-in + custom, minus removed), sorted by date.
+// If a built-in and a custom holiday exist on the same date, only the custom
+// holiday is returned.
 func (c *Calendar) Holidays() []Holiday {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -167,7 +169,8 @@ func (c *Calendar) holidaysInRange(from, to date) []Holiday {
 
 // AddCustomHoliday registers a custom holiday on the given date.
 // If a custom holiday already exists on that date, it is overwritten.
-// Custom holidays are independent of built-in holidays.
+// If a built-in holiday exists on the same date, this custom holiday takes
+// precedence in lookups and list APIs.
 func (c *Calendar) AddCustomHoliday(t time.Time, name string) {
 	d := dateFromTime(t)
 	c.mu.Lock()

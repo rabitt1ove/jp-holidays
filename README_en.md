@@ -77,6 +77,9 @@ func main() {
 | `RemoveHoliday(t time.Time)` | Suppress a built-in holiday |
 | `RestoreHoliday(t time.Time)` | Restore a suppressed built-in holiday |
 
+If a built-in holiday and a custom holiday exist on the same date, the custom holiday takes precedence.  
+In list APIs (`Holidays`, `HolidaysInYear`, `HolidaysInMonth`, `HolidaysBetween`), that date is returned only once (no duplicates).
+
 ### Calendar Instance
 
 All functions above are also available as methods on `*Calendar`. Use `New()` to create an isolated instance with its own custom holiday set:

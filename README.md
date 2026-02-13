@@ -76,6 +76,9 @@ func main() {
 | `RemoveHoliday(t time.Time)` | 組み込み祝日を抑制（非表示にする） |
 | `RestoreHoliday(t time.Time)` | 抑制した祝日を復元 |
 
+同一日付に組み込み祝日とカスタム休日がある場合は、カスタム休日が優先されます。  
+このとき一覧系 API（`Holidays` / `HolidaysInYear` / `HolidaysInMonth` / `HolidaysBetween`）でも重複せず 1 件だけ返ります。
+
 ### Calendar インスタンス
 
 上記のすべての関数は `*Calendar` のメソッドとしても利用できます。`New()` で独立したインスタンスを作成し、インスタンスごとに異なるカスタム休日を管理できます：

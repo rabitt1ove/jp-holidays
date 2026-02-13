@@ -175,6 +175,19 @@ func TestNextBusinessDay_ZeroOnExhaustion(t *testing.T) {
 	}
 }
 
+func TestPreviousBusinessDay_ZeroOnExhaustion(t *testing.T) {
+	cal := New()
+	start := d(2026, time.December, 31)
+	for i := 0; i < 366; i++ {
+		day := start.AddDate(0, 0, -i)
+		cal.AddCustomHoliday(day, "blocked")
+	}
+	got := cal.PreviousBusinessDay(start)
+	if !got.IsZero() {
+		t.Errorf("expected zero time on exhaustion, got %s", got.Format("2006-01-02"))
+	}
+}
+
 func TestPreviousBusinessDay(t *testing.T) {
 	tests := []struct {
 		name string

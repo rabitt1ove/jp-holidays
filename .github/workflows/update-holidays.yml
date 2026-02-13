@@ -48,11 +48,11 @@ jobs:
           # Force-push to overwrite the previous update branch
           git push -f origin "$branch"
           if ! gh pr list --head "$branch" --state open | grep -q .; then
+            body="Automated update of holiday data from the Cabinet Office CSV."
+            body="${body}"$'\n\n'"Source: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
             gh pr create \
               --title "Update holiday data" \
-              --body "Automated update of holiday data from the Cabinet Office CSV.
-
-          Source: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv" \
+              --body "$body" \
               --base main \
               --head "$branch"
           fi

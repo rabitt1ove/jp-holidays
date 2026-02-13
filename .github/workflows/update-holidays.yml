@@ -5,6 +5,10 @@ on:
     - cron: "0 0 * * 0" # Every Sunday at 00:00 UTC (09:00 JST)
   workflow_dispatch: # Allow manual trigger
 
+permissions:
+  contents: write
+  pull-requests: write
+
 defaults:
   run:
     shell: bash
@@ -48,7 +52,7 @@ jobs:
       - name: Create Pull Request
         if: steps.check.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           branch="update-holiday-data"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
@@ -59,7 +63,7 @@ jobs:
           git commit -m "update holiday data from Cabinet Office CSV"
           # Force-push to overwrite the previous update branch
           git push -f origin "$branch"
-          if ! gh pr list --head "$branch" --state open | grep -q .; then
+          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' | grep -q .; then
             body="Automated update of holiday data from the Cabinet Office CSV."
             body="${body}"$'\n\n'"Source: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
             gh pr create \
@@ -69,10 +73,18 @@ jobs:
               --head "$branch"
           fi
 
-      - name: Approve and auto-merge
+      - name: Approve pull request
         if: steps.check.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr review update-holiday-data --approve
-          gh pr merge update-holiday-data --auto --squash
+          pr_number="$(gh pr list --head update-holiday-data --state open --json number --jq '.[0].number')"
+          gh pr review "$pr_number" --approve || true
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          pr_number="$(gh pr list --head update-holiday-data --state open --json number --jq '.[0].number')"
+          gh pr merge "$pr_number" --auto --squash

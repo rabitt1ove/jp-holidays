@@ -84,6 +84,7 @@ func (c *Calendar) PreviousHoliday(t time.Time) (Holiday, bool) {
 
 // NextBusinessDay returns the next business day on or after the given date.
 // If t itself is a business day, it returns t (normalized to midnight UTC).
+// Returns the zero time if no business day is found within 366 days.
 func (c *Calendar) NextBusinessDay(t time.Time) time.Time {
 	d := dateFromTime(t)
 	cur := d.toTime()
@@ -93,11 +94,12 @@ func (c *Calendar) NextBusinessDay(t time.Time) time.Time {
 		}
 		cur = cur.AddDate(0, 0, 1)
 	}
-	return cur
+	return time.Time{}
 }
 
 // PreviousBusinessDay returns the most recent business day on or before the given date.
 // If t itself is a business day, it returns t (normalized to midnight UTC).
+// Returns the zero time if no business day is found within 366 days.
 func (c *Calendar) PreviousBusinessDay(t time.Time) time.Time {
 	d := dateFromTime(t)
 	cur := d.toTime()
@@ -107,7 +109,7 @@ func (c *Calendar) PreviousBusinessDay(t time.Time) time.Time {
 		}
 		cur = cur.AddDate(0, 0, -1)
 	}
-	return cur
+	return time.Time{}
 }
 
 // BusinessDaysBetween returns the count of business days in the range [from, to] inclusive.

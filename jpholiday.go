@@ -121,6 +121,9 @@ func (c *Calendar) Holidays() []Holiday {
 		if c.removed[d] {
 			continue
 		}
+		if _, ok := c.custom[d]; ok {
+			continue
+		}
 		result = append(result, Holiday{Date: d.toTime(), Name: name})
 	}
 	for d, name := range c.custom {
@@ -141,6 +144,9 @@ func (c *Calendar) holidaysInRange(from, to date) []Holiday {
 	var result []Holiday
 	for d, name := range builtinHolidays {
 		if c.removed[d] {
+			continue
+		}
+		if _, ok := c.custom[d]; ok {
 			continue
 		}
 		if d.inRange(from, to) {

@@ -6,18 +6,19 @@ import (
 )
 
 func TestIsBusinessDay(t *testing.T) {
+	// 2026: Jan 1 = Thu, Jun 1 = Mon
 	tests := []struct {
 		name string
 		date time.Time
 		want bool
 	}{
-		{"Monday non-holiday", d(2024, time.June, 10), true},
-		{"Tuesday non-holiday", d(2024, time.June, 11), true},
-		{"Friday non-holiday", d(2024, time.June, 14), true},
-		{"Saturday", d(2024, time.June, 8), false},
-		{"Sunday", d(2024, time.June, 9), false},
-		{"New Years Day (Monday)", d(2024, time.January, 1), false},
-		{"Substitute holiday", d(2024, time.May, 6), false},
+		{"Wednesday non-holiday", d(2026, time.June, 10), true},
+		{"Thursday non-holiday", d(2026, time.June, 11), true},
+		{"Friday non-holiday", d(2026, time.June, 12), true},
+		{"Saturday", d(2026, time.June, 6), false},
+		{"Sunday", d(2026, time.June, 7), false},
+		{"New Years Day (Thursday)", d(2026, time.January, 1), false},
+		{"Substitute holiday", d(2026, time.May, 6), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,33 +37,33 @@ func TestIsBusinessDay_JSTNormalization(t *testing.T) {
 		want bool
 	}{
 		{
-			// 2024-01-05 (Fri) 20:00 UTC = 2024-01-06 (Sat) 05:00 JST → not business day
+			// 2026-01-02 (Fri) 20:00 UTC = 2026-01-03 (Sat) 05:00 JST → not business day
 			"UTC Friday evening — Saturday in JST",
-			time.Date(2024, time.January, 5, 20, 0, 0, 0, time.UTC),
+			time.Date(2026, time.January, 2, 20, 0, 0, 0, time.UTC),
 			false,
 		},
 		{
-			// 2024-01-05 (Fri) 14:59 UTC = 2024-01-05 (Fri) 23:59 JST → business day
+			// 2026-01-02 (Fri) 14:59 UTC = 2026-01-02 (Fri) 23:59 JST → business day
 			"UTC Friday afternoon — still Friday in JST",
-			time.Date(2024, time.January, 5, 14, 59, 0, 0, time.UTC),
+			time.Date(2026, time.January, 2, 14, 59, 0, 0, time.UTC),
 			true,
 		},
 		{
-			// 2024-01-07 (Sun) 15:00 UTC = 2024-01-08 (Mon) 00:00 JST → 成人の日 → not business day
+			// 2026-01-11 (Sun) 15:00 UTC = 2026-01-12 (Mon 成人の日) 00:00 JST → not business day
 			"UTC Sunday 15:00 — Monday holiday in JST",
-			time.Date(2024, time.January, 7, 15, 0, 0, 0, time.UTC),
+			time.Date(2026, time.January, 11, 15, 0, 0, 0, time.UTC),
 			false,
 		},
 		{
-			// 2024-01-07 (Sun) 14:59 UTC = 2024-01-07 (Sun) 23:59 JST → weekend
+			// 2026-01-11 (Sun) 14:59 UTC = 2026-01-11 (Sun) 23:59 JST → weekend
 			"UTC Sunday 14:59 — still Sunday in JST",
-			time.Date(2024, time.January, 7, 14, 59, 0, 0, time.UTC),
+			time.Date(2026, time.January, 11, 14, 59, 0, 0, time.UTC),
 			false,
 		},
 		{
-			// 2024-01-08 (Mon 成人の日) 15:00 UTC = 2024-01-09 (Tue) 00:00 JST → business day
+			// 2026-01-12 (Mon 成人の日) 15:00 UTC = 2026-01-13 (Tue) 00:00 JST → business day
 			"UTC Monday holiday 15:00 — Tuesday in JST",
-			time.Date(2024, time.January, 8, 15, 0, 0, 0, time.UTC),
+			time.Date(2026, time.January, 12, 15, 0, 0, 0, time.UTC),
 			true,
 		},
 	}
@@ -82,7 +83,7 @@ func TestIsBusinessDay_JSTNormalization(t *testing.T) {
 
 func TestIsBusinessDay_CustomHoliday(t *testing.T) {
 	cal := New()
-	day := d(2024, time.June, 10) // Monday
+	day := d(2026, time.June, 10) // Wednesday
 	if !cal.IsBusinessDay(day) {
 		t.Fatal("should be a business day by default")
 	}
@@ -94,13 +95,13 @@ func TestIsBusinessDay_CustomHoliday(t *testing.T) {
 }
 
 func TestNextHoliday(t *testing.T) {
-	h, ok := NextHoliday(d(2024, time.January, 1))
+	h, ok := NextHoliday(d(2026, time.January, 1))
 	if !ok {
 		t.Fatal("expected a next holiday")
 	}
-	// Next holiday after 2024-01-01 is 2024-01-08 (成人の日).
-	if h.Date != d(2024, time.January, 8) {
-		t.Errorf("NextHoliday after 2024-01-01 = %s, want 2024-01-08",
+	// Next holiday after 2026-01-01 is 2026-01-12 (成人の日).
+	if h.Date != d(2026, time.January, 12) {
+		t.Errorf("NextHoliday after 2026-01-01 = %s, want 2026-01-12",
 			h.Date.Format("2006-01-02"))
 	}
 	if h.Name != "成人の日" {
@@ -109,19 +110,19 @@ func TestNextHoliday(t *testing.T) {
 }
 
 func TestNextHoliday_EndOfDataset(t *testing.T) {
-	_, ok := NextHoliday(d(2028, time.January, 1))
+	_, ok := NextHoliday(d(2100, time.January, 1))
 	if ok {
 		t.Error("should return false after end of dataset")
 	}
 }
 
 func TestPreviousHoliday(t *testing.T) {
-	h, ok := PreviousHoliday(d(2024, time.January, 8))
+	h, ok := PreviousHoliday(d(2026, time.January, 12))
 	if !ok {
 		t.Fatal("expected a previous holiday")
 	}
-	if h.Date != d(2024, time.January, 1) {
-		t.Errorf("PreviousHoliday before 2024-01-08 = %s, want 2024-01-01",
+	if h.Date != d(2026, time.January, 1) {
+		t.Errorf("PreviousHoliday before 2026-01-12 = %s, want 2026-01-01",
 			h.Date.Format("2006-01-02"))
 	}
 }
@@ -134,17 +135,18 @@ func TestPreviousHoliday_StartOfDataset(t *testing.T) {
 }
 
 func TestNextBusinessDay(t *testing.T) {
+	// 2026: Jan 1 = Thu, Jun 1 = Mon
 	tests := []struct {
 		name string
 		date time.Time
 		want time.Time
 	}{
-		{"Already business day (Friday)", d(2024, time.June, 7), d(2024, time.June, 7)},
-		{"Saturday -> Monday", d(2024, time.June, 8), d(2024, time.June, 10)},
-		{"Sunday -> Monday", d(2024, time.June, 9), d(2024, time.June, 10)},
-		{"Holiday -> next weekday", d(2024, time.January, 1), d(2024, time.January, 2)},
-		// 2024-05-03 Fri, 05-04 Sat, 05-05 Sun, 05-06 Mon (sub holiday) -> 05-07 Tue
-		{"GW Friday -> Tuesday", d(2024, time.May, 3), d(2024, time.May, 7)},
+		{"Already business day (Friday)", d(2026, time.June, 5), d(2026, time.June, 5)},
+		{"Saturday -> Monday", d(2026, time.June, 6), d(2026, time.June, 8)},
+		{"Sunday -> Monday", d(2026, time.June, 7), d(2026, time.June, 8)},
+		{"Holiday -> next weekday", d(2026, time.January, 1), d(2026, time.January, 2)},
+		// 2026-05-03 Sun, 05-04 Mon (holiday), 05-05 Tue (holiday), 05-06 Wed (holiday) -> 05-07 Thu
+		{"GW Sunday -> Thursday", d(2026, time.May, 3), d(2026, time.May, 7)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -159,16 +161,30 @@ func TestNextBusinessDay(t *testing.T) {
 	}
 }
 
+func TestNextBusinessDay_ZeroOnExhaustion(t *testing.T) {
+	cal := New()
+	// Add custom holidays for 366 consecutive days to exhaust the loop.
+	start := d(2026, time.January, 1)
+	for i := 0; i < 366; i++ {
+		day := start.AddDate(0, 0, i)
+		cal.AddCustomHoliday(day, "blocked")
+	}
+	got := cal.NextBusinessDay(start)
+	if !got.IsZero() {
+		t.Errorf("expected zero time on exhaustion, got %s", got.Format("2006-01-02"))
+	}
+}
+
 func TestPreviousBusinessDay(t *testing.T) {
 	tests := []struct {
 		name string
 		date time.Time
 		want time.Time
 	}{
-		{"Already business day (Friday)", d(2024, time.June, 7), d(2024, time.June, 7)},
-		{"Saturday -> Friday", d(2024, time.June, 8), d(2024, time.June, 7)},
-		{"Sunday -> Friday", d(2024, time.June, 9), d(2024, time.June, 7)},
-		{"Monday holiday -> previous Friday", d(2024, time.January, 8), d(2024, time.January, 5)},
+		{"Already business day (Friday)", d(2026, time.June, 5), d(2026, time.June, 5)},
+		{"Saturday -> Friday", d(2026, time.June, 6), d(2026, time.June, 5)},
+		{"Sunday -> Friday", d(2026, time.June, 7), d(2026, time.June, 5)},
+		{"Monday holiday -> previous Friday", d(2026, time.January, 12), d(2026, time.January, 9)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -184,20 +200,21 @@ func TestPreviousBusinessDay(t *testing.T) {
 }
 
 func TestBusinessDaysBetween(t *testing.T) {
+	// 2026: Jun 1 = Mon, Jun 8 = Mon
 	tests := []struct {
 		name string
 		from time.Time
 		to   time.Time
 		want int
 	}{
-		{"Mon-Fri no holidays", d(2024, time.June, 10), d(2024, time.June, 14), 5},
-		{"Full week with weekend", d(2024, time.June, 10), d(2024, time.June, 16), 5},
-		{"Same day business day", d(2024, time.June, 10), d(2024, time.June, 10), 1},
-		{"Same day weekend", d(2024, time.June, 8), d(2024, time.June, 8), 0},
-		{"Reversed range", d(2024, time.June, 14), d(2024, time.June, 10), 0},
-		// GW 2024: 04/29(Mon holiday), 04/30(Tue), 05/01(Wed), 05/02(Thu), 05/03(Fri holiday),
-		// 05/04(Sat), 05/05(Sun), 05/06(Mon holiday)
-		{"Golden Week", d(2024, time.April, 29), d(2024, time.May, 6), 3},
+		{"Mon-Fri no holidays", d(2026, time.June, 8), d(2026, time.June, 12), 5},
+		{"Full week with weekend", d(2026, time.June, 8), d(2026, time.June, 14), 5},
+		{"Same day business day", d(2026, time.June, 8), d(2026, time.June, 8), 1},
+		{"Same day weekend", d(2026, time.June, 6), d(2026, time.June, 6), 0},
+		{"Reversed range", d(2026, time.June, 12), d(2026, time.June, 8), 0},
+		// GW 2026: 04/29(Wed holiday), 04/30(Thu), 05/01(Fri),
+		// 05/02(Sat), 05/03(Sun holiday), 05/04(Mon holiday), 05/05(Tue holiday), 05/06(Wed holiday)
+		{"Golden Week", d(2026, time.April, 29), d(2026, time.May, 6), 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.go"
+      run: golangci-lint run --fix
+    test:
+      glob: "*.go"
+      run: go test -race -count=1 ./...
+
+pre-push:
+  commands:
+    vulncheck:
+      run: govulncheck ./...

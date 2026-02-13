@@ -11,4 +11,4 @@ pre-commit:
 pre-push:
   commands:
     vulncheck:
-      run: govulncheck ./...
+      run: make vulncheck

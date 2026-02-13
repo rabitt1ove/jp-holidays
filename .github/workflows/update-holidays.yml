@@ -41,29 +41,39 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate GitHub App token
+      - name: Generate creator app token
         if: steps.check.outputs.changed == 'true'
-        id: app-token
+        id: app-creator
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.APP_CREATOR_ID }}
+          private-key: ${{ secrets.APP_CREATOR_PRIVATE_KEY }}
+
+      - name: Generate merger app token
+        if: steps.check.outputs.changed == 'true'
+        id: app-merger
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_MERGER_ID }}
+          private-key: ${{ secrets.APP_MERGER_PRIVATE_KEY }}
 
       - name: Create Pull Request
         if: steps.check.outputs.changed == 'true'
+        id: pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-creator.outputs.token }}
         run: |
           branch="update-holiday-data"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "holiday-bot"
+          git config user.email "holiday-bot@users.noreply.github.com"
           git checkout -B "$branch"
           git add holidays_data.go
           git commit -m "update holiday data from Cabinet Office CSV"
           # Force-push to overwrite the previous update branch
           git push -f origin "$branch"
-          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' | grep -q .; then
+          pr_number="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
+          if [ -z "$pr_number" ]; then
             body="Automated update of holiday data from the Cabinet Office CSV."
             body="${body}"$'\n\n'"Source: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
             gh pr create \
@@ -71,20 +81,20 @@ jobs:
               --body "$body" \
               --base main \
               --head "$branch"
+            pr_number="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
           fi
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
 
       - name: Approve pull request
         if: steps.check.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-merger.outputs.token }}
         run: |
-          pr_number="$(gh pr list --head update-holiday-data --state open --json number --jq '.[0].number')"
-          gh pr review "$pr_number" --approve || true
+          gh pr review "${{ steps.pr.outputs.number }}" --approve
 
       - name: Enable auto-merge
         if: steps.check.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-merger.outputs.token }}
         run: |
-          pr_number="$(gh pr list --head update-holiday-data --state open --json number --jq '.[0].number')"
-          gh pr merge "$pr_number" --auto --squash
+          gh pr merge "${{ steps.pr.outputs.number }}" --auto --squash

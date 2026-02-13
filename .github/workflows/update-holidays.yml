@@ -5,10 +5,6 @@ on:
     - cron: "0 0 * * 0" # Every Sunday at 00:00 UTC (09:00 JST)
   workflow_dispatch: # Allow manual trigger
 
-permissions:
-  contents: write
-  pull-requests: write
-
 defaults:
   run:
     shell: bash
@@ -70,10 +66,9 @@ jobs:
               --head "$branch"
           fi
 
-      - name: Approve and auto-merge
+      - name: Enable auto-merge
         if: steps.check.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr review update-holiday-data --approve
           gh pr merge update-holiday-data --auto --squash

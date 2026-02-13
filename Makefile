@@ -12,7 +12,7 @@ check-tools:
 setup:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
 	go install golang.org/x/vuln/cmd/govulncheck@latest
-	go install github.com/evilmartians/lefthook/cmd/lefthook@latest
+	go install github.com/evilmartians/lefthook@latest
 	$(GOBIN)/lefthook install
 
 ## リンター実行
@@ -40,22 +40,18 @@ vulncheck: check-tools
 generate:
 	cd cmd/genholidays && go run main.go -output ../../holidays_data.go
 
-## 生成ファイルの削除
-clean:
-	rm -f holidays_data.go
-
 ## CI相当のチェックをローカルで一括実行
 ci: lint test vulncheck
 
 ## ヘルプ
 help:
 	@echo "使用可能なターゲット:"
-	@echo "  make setup      - 開発ツールのインストール + lefthook セットアップ"
-	@echo "  make lint       - リンター実行"
-	@echo "  make fmt        - フォーマット + 自動修正"
-	@echo "  make test       - テスト実行（-race 付き）"
-	@echo "  make bench      - ベンチマーク実行"
-	@echo "  make vulncheck  - 依存パッケージの脆弱性チェック"
-	@echo "  make generate   - 祝日データ生成（内閣府CSV取得）"
-	@echo "  make clean      - 生成ファイルの削除"
-	@echo "  make ci         - CI相当チェック一括実行（lint + test + vulncheck）"
+	@echo "  make check-tools  - 必要ツールと hooks の存在チェック"
+	@echo "  make setup        - 開発ツールのインストール + lefthook セットアップ"
+	@echo "  make lint         - リンター実行"
+	@echo "  make fmt          - フォーマット + 自動修正"
+	@echo "  make test         - テスト実行（-race 付き）"
+	@echo "  make bench        - ベンチマーク実行"
+	@echo "  make vulncheck    - 依存パッケージの脆弱性チェック"
+	@echo "  make generate     - 祝日データ生成（内閣府CSV取得）"
+	@echo "  make ci           - CI相当チェック一括実行（lint + test + vulncheck）"

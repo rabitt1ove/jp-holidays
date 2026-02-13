@@ -1,17 +1,8 @@
 version: 2
 
-registries:
-  github-private:
-    type: git
-    url: https://github.com
-    username: x-access-token
-    password: ${{ secrets.DEPENDABOT_TOKEN }}
-
 updates:
   # GitHub Actions
   - package-ecosystem: "github-actions"
-    registries:
-      - github-private
     directory: "/"
     schedule:
       interval: "weekly"
@@ -22,12 +13,10 @@ updates:
       prefix: "chore"
     labels:
       - dependencies
-    open-pull-requests-limit: 20
+    open-pull-requests-limit: 5
 
-  # Go modules
+  # Go modules (main)
   - package-ecosystem: "gomod"
-    registries:
-      - github-private
     directory: "/"
     schedule:
       interval: "weekly"
@@ -38,7 +27,25 @@ updates:
       prefix: "chore"
     labels:
       - dependencies
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    groups:
+      minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Go modules (generator)
+  - package-ecosystem: "gomod"
+    directory: "/cmd/genholidays"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 5
     groups:
       minor-patch:
         patterns: ["*"]

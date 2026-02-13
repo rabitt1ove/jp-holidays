@@ -1216,4 +1216,5 @@ var builtinHolidays = map[date]string{
 	{2027, time.September, 23}: "秋分の日",
 	{2027, time.October, 11}:   "スポーツの日",
 	{2027, time.November, 3}:   "文化の日",
+	{2027, time.November, 23}:  "勤労感謝の日",
 }

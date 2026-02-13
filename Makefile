@@ -1,6 +1,12 @@
 GOBIN ?= $(shell go env GOPATH)/bin
 
-.PHONY: setup lint fmt test bench vulncheck generate clean ci help
+.PHONY: setup check-tools lint fmt test bench vulncheck generate clean ci help
+
+## ツールの存在チェック（なければ make setup を促す）
+check-tools:
+	@test -x $(GOBIN)/golangci-lint || (echo "Error: golangci-lint not found. Run 'make setup' first." && exit 1)
+	@test -x $(GOBIN)/govulncheck || (echo "Error: govulncheck not found. Run 'make setup' first." && exit 1)
+	@test -f .git/hooks/pre-commit || (echo "Error: lefthook hooks not installed. Run 'make setup' first." && exit 1)
 
 ## 開発環境セットアップ（ツールのインストール + lefthook セットアップ）
 setup:
@@ -10,11 +16,11 @@ setup:
 	$(GOBIN)/lefthook install
 
 ## リンター実行
-lint:
+lint: check-tools
 	$(GOBIN)/golangci-lint run ./...
 
 ## フォーマット（自動修正）
-fmt:
+fmt: check-tools
 	$(GOBIN)/golangci-lint fmt ./...
 	$(GOBIN)/golangci-lint run --fix ./...
 
@@ -27,7 +33,7 @@ bench:
 	go test -bench=. -benchmem -count=1 -run=^$$ ./...
 
 ## 脆弱性チェック
-vulncheck:
+vulncheck: check-tools
 	$(GOBIN)/govulncheck ./...
 
 ## 祝日データ生成（内閣府CSVから holidays_data.go を生成）

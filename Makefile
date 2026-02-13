@@ -1,6 +1,11 @@
 GOBIN ?= $(shell go env GOPATH)/bin
+GO_VERSION := $(shell awk '/^go / { print $$2; exit }' go.mod)
 
-.PHONY: setup check-tools lint fmt test bench vulncheck generate clean ci help
+.PHONY: setup check-tools lint fmt test bench vulncheck generate ci help tidy
+
+## go.mod の制約に従って tidy 実行
+tidy:
+	go mod tidy -go=$(GO_VERSION)
 
 ## ツールの存在チェック（なければ make setup を促す）
 check-tools:
@@ -46,6 +51,7 @@ ci: lint test vulncheck
 ## ヘルプ
 help:
 	@echo "使用可能なターゲット:"
+	@echo "  make tidy         - go.mod の go バージョンに合わせて tidy 実行"
 	@echo "  make check-tools  - 必要ツールと hooks の存在チェック"
 	@echo "  make setup        - 開発ツールのインストール + lefthook セットアップ"
 	@echo "  make lint         - リンター実行"

@@ -69,9 +69,10 @@ jobs:
               --head "$branch"
           fi
 
-      - name: Merge pull request
+      - name: Approve and auto-merge
         if: steps.check.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr merge update-holiday-data --squash
+          gh pr review update-holiday-data --approve
+          gh pr merge update-holiday-data --auto --squash

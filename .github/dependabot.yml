@@ -1,0 +1,45 @@
+version: 2
+
+registries:
+  github-private:
+    type: git
+    url: https://github.com
+    username: x-access-token
+    password: ${{ secrets.DEPENDABOT_TOKEN }}
+
+updates:
+  # Go modules
+  - package-ecosystem: "gomod"
+    registries:
+      - github-private
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 10
+    groups:
+      minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    registries:
+      - github-private
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 20

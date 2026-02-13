@@ -45,8 +45,8 @@ func ExampleHolidaysInMonth() {
 }
 
 func ExampleIsBusinessDay() {
-	fmt.Println(jpholiday.IsBusinessDay(time.Date(2026, time.June, 10, 0, 0, 0, 0, jst)))  // Wednesday
-	fmt.Println(jpholiday.IsBusinessDay(time.Date(2026, time.June, 6, 0, 0, 0, 0, jst)))   // Saturday
+	fmt.Println(jpholiday.IsBusinessDay(time.Date(2026, time.June, 10, 0, 0, 0, 0, jst)))   // Wednesday
+	fmt.Println(jpholiday.IsBusinessDay(time.Date(2026, time.June, 6, 0, 0, 0, 0, jst)))    // Saturday
 	fmt.Println(jpholiday.IsBusinessDay(time.Date(2026, time.January, 1, 0, 0, 0, 0, jst))) // Holiday
 	// Output:
 	// true

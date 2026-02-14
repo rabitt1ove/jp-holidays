@@ -41,9 +41,8 @@ const (
 
 	minExpectedRows = 1000
 
-	httpTimeout    = 30 * time.Second
-	maxRetries     = 3
-	retryBaseDelay = 2 * time.Second
+	httpTimeout = 30 * time.Second
+	maxRetries  = 3
 
 	// Maximum response sizes to prevent memory exhaustion.
 	maxJSONResponseSize = 1 * 1024 * 1024 // 1 MB for CKAN API response
@@ -51,6 +50,9 @@ const (
 
 	userAgent = "jp-holidays-generator/1.0 (https://github.com/rabitt1ove/jp-holidays)"
 )
+
+// retryBaseDelay is the base delay between retry attempts (variable for testing).
+var retryBaseDelay = 2 * time.Second
 
 // allowedCSVHosts is the set of hostnames allowed for CSV download URLs.
 // This prevents SSRF if the CKAN API returns an unexpected URL.
@@ -114,9 +116,14 @@ func main() {
 
 // resolveCSVURL queries the CKAN API to get the current CSV download URL.
 func resolveCSVURL(client *http.Client) (string, error) {
-	log.Printf("resolving CSV URL via CKAN API: %s", ckanAPIURL)
+	return resolveCSVURLFrom(client, ckanAPIURL)
+}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ckanAPIURL, nil)
+// resolveCSVURLFrom queries the given CKAN API endpoint to get the current CSV download URL.
+func resolveCSVURLFrom(client *http.Client, apiURL string) (string, error) {
+	log.Printf("resolving CSV URL via CKAN API: %s", apiURL)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -174,18 +181,23 @@ func validateCSVURL(rawURL string) error {
 // fetchCSV resolves the CSV URL and fetches it with retries.
 // Strategy: CKAN API -> fallback URL 1 -> fallback URL 2.
 func fetchCSV(client *http.Client) (io.Reader, error) {
+	return fetchCSVWithFallbacks(client, ckanAPIURL, fallbackURL1, fallbackURL2)
+}
+
+// fetchCSVWithFallbacks resolves the CSV URL via the given CKAN API and fetches it with retries.
+func fetchCSVWithFallbacks(client *http.Client, ckanURL, fb1, fb2 string) (io.Reader, error) {
 	// Build ordered list of URLs to try.
 	var urls []string
 
 	// Try CKAN API first.
-	if resolved, err := resolveCSVURL(client); err != nil {
+	if resolved, err := resolveCSVURLFrom(client, ckanURL); err != nil {
 		log.Printf("  CKAN API failed: %v (falling back to direct URLs)", err)
 	} else {
 		urls = append(urls, resolved)
 	}
 
 	// Add fallback URLs (skip if CKAN already resolved to same URL).
-	for _, fb := range []string{fallbackURL1, fallbackURL2} {
+	for _, fb := range []string{fb1, fb2} {
 		if len(urls) == 0 || urls[0] != fb {
 			urls = append(urls, fb)
 		}

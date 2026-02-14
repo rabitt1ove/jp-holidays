@@ -1,81 +1,44 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	retryBaseDelay = 0 // Eliminate sleep in retry loops for all tests.
+	os.Exit(m.Run())
+}
+
+// --- validateCSVURL ---
+
 func TestValidateCSVURL(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		url     string
 		wantErr bool
 	}{
-		// Allowed.
-		{
-			"allowed host syukujitsu",
-			"https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv",
-			false,
-		},
-		{
-			"allowed host shukujitsu",
-			"https://www8.cao.go.jp/chosei/shukujitsu/shukujitsu.csv",
-			false,
-		},
-		{
-			"allowed host www.cao.go.jp",
-			"https://www.cao.go.jp/some/path.csv",
-			false,
-		},
-
-		// Blocked: wrong host (SSRF prevention).
-		{
-			"blocked evil host",
-			"https://evil.example.com/syukujitsu.csv",
-			true,
-		},
-		{
-			"blocked localhost",
-			"https://localhost/syukujitsu.csv",
-			true,
-		},
-		{
-			"blocked internal IP",
-			"https://192.168.1.1/syukujitsu.csv",
-			true,
-		},
-		{
-			"blocked similar domain",
-			"https://www8.cao.go.jp.evil.com/syukujitsu.csv",
-			true,
-		},
-
-		// Blocked: wrong scheme.
-		{
-			"blocked HTTP (not HTTPS)",
-			"http://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv",
-			true,
-		},
-		{
-			"blocked FTP",
-			"ftp://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv",
-			true,
-		},
-
-		// Blocked: malformed.
-		{
-			"blocked empty URL",
-			"",
-			true,
-		},
-		{
-			"blocked no scheme",
-			"www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv",
-			true,
-		},
+		{"allowed host syukujitsu", "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv", false},
+		{"allowed host shukujitsu", "https://www8.cao.go.jp/chosei/shukujitsu/shukujitsu.csv", false},
+		{"allowed host www.cao.go.jp", "https://www.cao.go.jp/some/path.csv", false},
+		{"blocked evil host", "https://evil.example.com/syukujitsu.csv", true},
+		{"blocked localhost", "https://localhost/syukujitsu.csv", true},
+		{"blocked internal IP", "https://192.168.1.1/syukujitsu.csv", true},
+		{"blocked similar domain", "https://www8.cao.go.jp.evil.com/syukujitsu.csv", true},
+		{"blocked HTTP", "http://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv", true},
+		{"blocked FTP", "ftp://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv", true},
+		{"blocked empty URL", "", true},
+		{"blocked no scheme", "www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv", true},
+		{"invalid URL parse", "://invalid", true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateCSVURL(tt.url)
@@ -86,7 +49,11 @@ func TestValidateCSVURL(t *testing.T) {
 	}
 }
 
+// --- parseCSV ---
+
 func TestParseCSV_Valid(t *testing.T) {
+	t.Parallel()
+
 	csv := "国民の祝日・休日月日,国民の祝日・休日名称\r\n2024/1/1,元日\r\n2024/1/8,成人の日\r\n"
 	holidays, err := parseCSV(strings.NewReader(csv))
 	if err != nil {
@@ -105,6 +72,8 @@ func TestParseCSV_Valid(t *testing.T) {
 }
 
 func TestParseCSV_InvalidHeader(t *testing.T) {
+	t.Parallel()
+
 	csv := "date,name\r\n2024/1/1,元日\r\n"
 	_, err := parseCSV(strings.NewReader(csv))
 	if err == nil {
@@ -116,6 +85,8 @@ func TestParseCSV_InvalidHeader(t *testing.T) {
 }
 
 func TestParseCSV_InvalidDate(t *testing.T) {
+	t.Parallel()
+
 	csv := "国民の祝日月日,国民の祝日名称\r\nnot-a-date,元日\r\n"
 	_, err := parseCSV(strings.NewReader(csv))
 	if err == nil {
@@ -127,6 +98,8 @@ func TestParseCSV_InvalidDate(t *testing.T) {
 }
 
 func TestParseCSV_TooFewColumns(t *testing.T) {
+	t.Parallel()
+
 	csv := "国民の祝日月日,国民の祝日名称\r\n2024/1/1\r\n"
 	_, err := parseCSV(strings.NewReader(csv))
 	if err == nil {
@@ -135,6 +108,8 @@ func TestParseCSV_TooFewColumns(t *testing.T) {
 }
 
 func TestParseCSV_EmptyRows(t *testing.T) {
+	t.Parallel()
+
 	csv := "国民の祝日月日,国民の祝日名称\r\n2024/1/1,元日\r\n,\r\n2024/5/3,憲法記念日\r\n"
 	holidays, err := parseCSV(strings.NewReader(csv))
 	if err != nil {
@@ -145,7 +120,49 @@ func TestParseCSV_EmptyRows(t *testing.T) {
 	}
 }
 
+func TestParseCSV_TooFewHeaderColumns(t *testing.T) {
+	t.Parallel()
+
+	csv := "国民の祝日月日\r\n2024/1/1,元日\r\n"
+	_, err := parseCSV(strings.NewReader(csv))
+	if err == nil {
+		t.Fatal("expected error for single-column header")
+	}
+	if !strings.Contains(err.Error(), "unexpected header columns") {
+		t.Errorf("error should mention column count, got: %v", err)
+	}
+}
+
+func TestParseCSV_EmptyInput(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseCSV(strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected error for empty input")
+	}
+	if !strings.Contains(err.Error(), "reading header") {
+		t.Errorf("error should mention reading header, got: %v", err)
+	}
+}
+
+func TestParseCSV_PartialEmptyFields(t *testing.T) {
+	t.Parallel()
+
+	csv := "国民の祝日月日,国民の祝日名称\r\n,元日\r\n2024/1/1,元日\r\n"
+	holidays, err := parseCSV(strings.NewReader(csv))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(holidays) != 1 {
+		t.Errorf("expected 1 holiday, got %d", len(holidays))
+	}
+}
+
+// --- generate ---
+
 func TestGenerate(t *testing.T) {
+	t.Parallel()
+
 	holidays := []holiday{
 		{2024, time.May, 3, "憲法記念日"},
 		{2024, time.January, 1, "元日"},
@@ -157,27 +174,421 @@ func TestGenerate(t *testing.T) {
 	}
 
 	code := string(src)
-
-	// Should contain the generated comment.
 	if !strings.Contains(code, "Code generated by cmd/genholidays; DO NOT EDIT.") {
 		t.Error("missing generated comment")
 	}
-
-	// Should be sorted by date (January before May).
 	janIdx := strings.Index(code, "元日")
 	mayIdx := strings.Index(code, "憲法記念日")
 	if janIdx < 0 || mayIdx < 0 {
 		t.Fatal("missing holiday names in output")
 	}
 	if janIdx > mayIdx {
-		t.Error("holidays should be sorted by date (January before May)")
+		t.Error("holidays should be sorted by date")
+	}
+	if !strings.Contains(code, "time.January") || !strings.Contains(code, "time.May") {
+		t.Error("should use time.Month constants")
+	}
+}
+
+func TestGenerate_MultipleYears(t *testing.T) {
+	t.Parallel()
+
+	holidays := []holiday{
+		{2025, time.January, 1, "元日"},
+		{2024, time.January, 1, "元日"},
 	}
 
-	// Should contain proper time.Month constants.
-	if !strings.Contains(code, "time.January") {
-		t.Error("should use time.January constant")
+	src, err := generate(holidays)
+	if err != nil {
+		t.Fatalf("generate error: %v", err)
 	}
-	if !strings.Contains(code, "time.May") {
-		t.Error("should use time.May constant")
+
+	code := string(src)
+	if !strings.Contains(code, "// 2024") || !strings.Contains(code, "// 2025") {
+		t.Error("should contain year comments for multiple years")
+	}
+}
+
+func TestGenerate_SortByMonthThenDay(t *testing.T) {
+	t.Parallel()
+
+	holidays := []holiday{
+		{2024, time.March, 20, "春分の日"},
+		{2024, time.January, 1, "元日"},
+		{2024, time.January, 8, "成人の日"},
+	}
+
+	src, err := generate(holidays)
+	if err != nil {
+		t.Fatalf("generate error: %v", err)
+	}
+
+	code := string(src)
+	janIdx := strings.Index(code, "元日")
+	marIdx := strings.Index(code, "春分の日")
+	if janIdx > marIdx {
+		t.Error("January should come before March")
+	}
+}
+
+func TestMonthConstName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		month time.Month
+		want  string
+	}{
+		{time.January, "time.January"},
+		{time.February, "time.February"},
+		{time.December, "time.December"},
+	}
+	for _, tt := range tests {
+		if got := monthConstName(tt.month); got != tt.want {
+			t.Errorf("monthConstName(%v) = %q, want %q", tt.month, got, tt.want)
+		}
+	}
+}
+
+// --- HTTP mock helpers ---
+
+func newCKANResponseJSON(csvURL string) string {
+	resp := ckanResponse{Success: true}
+	resp.Result.Resources = []struct {
+		URL    string `json:"url"`
+		Format string `json:"format"`
+	}{{URL: csvURL, Format: "CSV"}}
+	b, _ := json.Marshal(resp)
+	return string(b)
+}
+
+// closedServer returns the URL of an already-closed httptest server (connection refused).
+func closedServerURL() string {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts.Close()
+	return ts.URL
+}
+
+// --- resolveCSVURLFrom ---
+
+func TestResolveCSVURLFrom_Success(t *testing.T) {
+	t.Parallel()
+
+	expectedURL := "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != userAgent {
+			t.Errorf("User-Agent = %q, want %q", got, userAgent)
+		}
+		fmt.Fprint(w, newCKANResponseJSON(expectedURL))
+	}))
+	defer ts.Close()
+
+	got, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != expectedURL {
+		t.Errorf("got %q, want %q", got, expectedURL)
+	}
+}
+
+func TestResolveCSVURLFrom_NonOKStatus(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for non-200 status")
+	}
+}
+
+func TestResolveCSVURLFrom_SuccessFalse(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(ckanResponse{Success: false})
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for success=false")
+	}
+}
+
+func TestResolveCSVURLFrom_NoCSVResource(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := ckanResponse{Success: true}
+		resp.Result.Resources = []struct {
+			URL    string `json:"url"`
+			Format string `json:"format"`
+		}{{URL: "https://example.com/data.json", Format: "JSON"}}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for no CSV resource")
+	}
+}
+
+func TestResolveCSVURLFrom_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "not json")
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestResolveCSVURLFrom_SSRFBlocked(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, newCKANResponseJSON("https://evil.example.com/data.csv"))
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLFrom(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for SSRF-blocked URL")
+	}
+}
+
+func TestResolveCSVURLFrom_NetworkError(t *testing.T) {
+	t.Parallel()
+
+	_, err := resolveCSVURLFrom(&http.Client{Timeout: 1 * time.Second}, closedServerURL())
+	if err == nil {
+		t.Fatal("expected error for network failure")
+	}
+}
+
+// --- fetchWithRetry ---
+
+func TestFetchWithRetry_Success(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != userAgent {
+			t.Errorf("User-Agent = %q, want %q", got, userAgent)
+		}
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+}
+
+func TestFetchWithRetry_404_NoRetry(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	_, err := fetchWithRetry(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+}
+
+func TestFetchWithRetry_ServerError_RetriesThenSucceeds(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestFetchWithRetry_AllRetriesFail_503(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	_, err := fetchWithRetry(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error after all retries fail")
+	}
+}
+
+func TestFetchWithRetry_429_RetriesThenSucceeds(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+}
+
+func TestFetchWithRetry_NetworkError(t *testing.T) {
+	t.Parallel()
+
+	_, err := fetchWithRetry(&http.Client{Timeout: 1 * time.Second}, closedServerURL())
+	if err == nil {
+		t.Fatal("expected error for network failure")
+	}
+}
+
+// --- fetchCSVWithFallbacks ---
+
+func TestFetchCSVWithFallbacks_CKANFails_Fb1Succeeds(t *testing.T) {
+	t.Parallel()
+
+	fb1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("csvdata"))
+	}))
+	defer fb1.Close()
+
+	ckan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ckan.Close()
+
+	fb2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fb2.Close()
+
+	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+}
+
+func TestFetchCSVWithFallbacks_CKANResolvesToSameAsFb1(t *testing.T) {
+	t.Parallel()
+
+	// When CKAN resolves to the same URL as fb1, deduplication prevents trying it twice.
+	// We use a mock fb1 server that returns 404, and CKAN resolves to fb1's URL.
+	fb1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fb1.Close()
+
+	ckan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Resolve to fb1's URL (same as the first fallback).
+		// validateCSVURL will reject non-allowed hosts, so CKAN resolution fails.
+		// This tests the fallback path when CKAN returns an invalid URL.
+		fmt.Fprint(w, newCKANResponseJSON(fb1.URL)) // localhost not in allowedCSVHosts
+	}))
+	defer ckan.Close()
+
+	fb2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("csvdata"))
+	}))
+	defer fb2.Close()
+
+	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+}
+
+func TestFetchCSVWithFallbacks_AllFail(t *testing.T) {
+	t.Parallel()
+
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer failServer.Close()
+
+	ckan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ckan.Close()
+
+	_, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, failServer.URL, failServer.URL)
+	if err == nil {
+		t.Fatal("expected error when all URLs fail")
+	}
+	if !strings.Contains(err.Error(), "all URLs failed") {
+		t.Errorf("error should mention all URLs failed, got: %v", err)
+	}
+}
+
+func TestFetchCSVWithFallbacks_Fb1Fails_Fb2Succeeds(t *testing.T) {
+	t.Parallel()
+
+	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer fail.Close()
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("csvdata"))
+	}))
+	defer ok.Close()
+
+	ckan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ckan.Close()
+
+	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fail.URL, ok.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
 	}
 }

@@ -2,6 +2,11 @@ package jpholiday
 
 import "time"
 
+// maxSearchDays is the maximum number of days to scan when searching for the
+// next or previous business day. 366 covers a full leap year, which is far
+// beyond any realistic consecutive non-business-day streak.
+const maxSearchDays = 366
+
 // IsBusinessDay reports whether the given date is a business day
 // (neither a weekend nor a holiday). The date is interpreted in JST.
 func (c *Calendar) IsBusinessDay(t time.Time) bool {
@@ -84,11 +89,11 @@ func (c *Calendar) PreviousHoliday(t time.Time) (Holiday, bool) {
 
 // NextBusinessDay returns the next business day on or after the given date.
 // If t itself is a business day, it returns t (normalized to midnight UTC).
-// Returns the zero time if no business day is found within 366 days.
+// Returns the zero time if no business day is found within maxSearchDays.
 func (c *Calendar) NextBusinessDay(t time.Time) time.Time {
 	d := dateFromTime(t)
 	cur := d.toTime()
-	for i := 0; i < 366; i++ {
+	for i := 0; i < maxSearchDays; i++ {
 		if c.IsBusinessDay(cur) {
 			return cur
 		}
@@ -99,11 +104,11 @@ func (c *Calendar) NextBusinessDay(t time.Time) time.Time {
 
 // PreviousBusinessDay returns the most recent business day on or before the given date.
 // If t itself is a business day, it returns t (normalized to midnight UTC).
-// Returns the zero time if no business day is found within 366 days.
+// Returns the zero time if no business day is found within maxSearchDays.
 func (c *Calendar) PreviousBusinessDay(t time.Time) time.Time {
 	d := dateFromTime(t)
 	cur := d.toTime()
-	for i := 0; i < 366; i++ {
+	for i := 0; i < maxSearchDays; i++ {
 		if c.IsBusinessDay(cur) {
 			return cur
 		}

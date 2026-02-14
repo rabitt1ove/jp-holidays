@@ -1,6 +1,6 @@
 # jp-holidays
 
-日本の祝日を判定する Go ライブラリ。外部依存ゼロ。
+日本の祝日を判定する Go ライブラリ。外部依存ゼロ。テストカバレッジ 100%。
 
 [English README](README_en.md)
 

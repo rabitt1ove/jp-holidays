@@ -6,6 +6,8 @@ import (
 )
 
 func TestIsBusinessDay(t *testing.T) {
+	t.Parallel()
+
 	// 2026: Jan 1 = Thu, Jun 1 = Mon
 	tests := []struct {
 		name string
@@ -22,6 +24,7 @@ func TestIsBusinessDay(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := IsBusinessDay(tt.date); got != tt.want {
 				t.Errorf("IsBusinessDay(%s) = %v, want %v",
 					tt.date.Format("2006-01-02"), got, tt.want)
@@ -31,6 +34,8 @@ func TestIsBusinessDay(t *testing.T) {
 }
 
 func TestIsBusinessDay_JSTNormalization(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		time time.Time
@@ -69,6 +74,7 @@ func TestIsBusinessDay_JSTNormalization(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := IsBusinessDay(tt.time); got != tt.want {
 				jst := time.FixedZone("JST", 9*60*60)
 				t.Errorf("IsBusinessDay(%v) = %v, want %v (JST: %v %v)",
@@ -82,6 +88,8 @@ func TestIsBusinessDay_JSTNormalization(t *testing.T) {
 }
 
 func TestIsBusinessDay_CustomHoliday(t *testing.T) {
+	t.Parallel()
+
 	cal := New()
 	day := d(2026, time.June, 10) // Wednesday
 	if !cal.IsBusinessDay(day) {
@@ -95,6 +103,8 @@ func TestIsBusinessDay_CustomHoliday(t *testing.T) {
 }
 
 func TestNextHoliday(t *testing.T) {
+	t.Parallel()
+
 	h, ok := NextHoliday(d(2026, time.January, 1))
 	if !ok {
 		t.Fatal("expected a next holiday")
@@ -110,6 +120,8 @@ func TestNextHoliday(t *testing.T) {
 }
 
 func TestNextHoliday_EndOfDataset(t *testing.T) {
+	t.Parallel()
+
 	_, ok := NextHoliday(d(2100, time.January, 1))
 	if ok {
 		t.Error("should return false after end of dataset")
@@ -117,6 +129,8 @@ func TestNextHoliday_EndOfDataset(t *testing.T) {
 }
 
 func TestPreviousHoliday(t *testing.T) {
+	t.Parallel()
+
 	h, ok := PreviousHoliday(d(2026, time.January, 12))
 	if !ok {
 		t.Fatal("expected a previous holiday")
@@ -128,6 +142,8 @@ func TestPreviousHoliday(t *testing.T) {
 }
 
 func TestPreviousHoliday_StartOfDataset(t *testing.T) {
+	t.Parallel()
+
 	_, ok := PreviousHoliday(d(1950, time.January, 1))
 	if ok {
 		t.Error("should return false before start of dataset")
@@ -135,6 +151,8 @@ func TestPreviousHoliday_StartOfDataset(t *testing.T) {
 }
 
 func TestNextBusinessDay(t *testing.T) {
+	t.Parallel()
+
 	// 2026: Jan 1 = Thu, Jun 1 = Mon
 	tests := []struct {
 		name string
@@ -150,6 +168,7 @@ func TestNextBusinessDay(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := NextBusinessDay(tt.date)
 			if got != tt.want {
 				t.Errorf("NextBusinessDay(%s) = %s, want %s",
@@ -162,10 +181,12 @@ func TestNextBusinessDay(t *testing.T) {
 }
 
 func TestNextBusinessDay_ZeroOnExhaustion(t *testing.T) {
+	t.Parallel()
+
 	cal := New()
-	// Add custom holidays for 366 consecutive days to exhaust the loop.
+	// Add custom holidays for maxSearchDays consecutive days to exhaust the loop.
 	start := d(2026, time.January, 1)
-	for i := 0; i < 366; i++ {
+	for i := 0; i < maxSearchDays; i++ {
 		day := start.AddDate(0, 0, i)
 		cal.AddCustomHoliday(day, "blocked")
 	}
@@ -176,9 +197,11 @@ func TestNextBusinessDay_ZeroOnExhaustion(t *testing.T) {
 }
 
 func TestPreviousBusinessDay_ZeroOnExhaustion(t *testing.T) {
+	t.Parallel()
+
 	cal := New()
 	start := d(2026, time.December, 31)
-	for i := 0; i < 366; i++ {
+	for i := 0; i < maxSearchDays; i++ {
 		day := start.AddDate(0, 0, -i)
 		cal.AddCustomHoliday(day, "blocked")
 	}
@@ -189,6 +212,8 @@ func TestPreviousBusinessDay_ZeroOnExhaustion(t *testing.T) {
 }
 
 func TestPreviousBusinessDay(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		date time.Time
@@ -201,6 +226,7 @@ func TestPreviousBusinessDay(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := PreviousBusinessDay(tt.date)
 			if got != tt.want {
 				t.Errorf("PreviousBusinessDay(%s) = %s, want %s",
@@ -213,6 +239,8 @@ func TestPreviousBusinessDay(t *testing.T) {
 }
 
 func TestBusinessDaysBetween(t *testing.T) {
+	t.Parallel()
+
 	// 2026: Jun 1 = Mon, Jun 8 = Mon
 	tests := []struct {
 		name string
@@ -231,6 +259,7 @@ func TestBusinessDaysBetween(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := BusinessDaysBetween(tt.from, tt.to)
 			if got != tt.want {
 				t.Errorf("BusinessDaysBetween(%s, %s) = %d, want %d",

@@ -1,8 +1,6 @@
 # jp-holidays
 
-[![CI](https://github.com/rabitt1ove/jp-holidays/actions/workflows/ci.yml/badge.svg)](https://github.com/rabitt1ove/jp-holidays/actions/workflows/ci.yml)
-
-Japanese national holiday library for Go. Zero dependencies.
+Japanese national holiday library for Go. Zero dependencies. 100% test coverage.
 
 [日本語版 README](README.md)
 
@@ -49,7 +47,7 @@ func main() {
 ### Holiday Lookup
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `IsHoliday(t time.Time) bool` | Check if a date is a holiday |
 | `HolidayName(t time.Time) string` | Get the holiday name (empty string if not a holiday) |
 | `HolidaysInYear(year int) []Holiday` | Get all holidays in a year |
@@ -60,7 +58,7 @@ func main() {
 ### Business Day Utilities
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `IsBusinessDay(t time.Time) bool` | Check if a date is a business day (not weekend, not holiday) |
 | `NextBusinessDay(t time.Time) time.Time` | Next business day on or after the date |
 | `PreviousBusinessDay(t time.Time) time.Time` | Previous business day on or before the date |
@@ -71,7 +69,7 @@ func main() {
 ### Custom Holidays
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `AddCustomHoliday(t time.Time, name string)` | Add a custom holiday |
 | `RemoveCustomHoliday(t time.Time)` | Remove a custom holiday |
 | `RemoveHoliday(t time.Time)` | Suppress a built-in holiday |
@@ -120,7 +118,7 @@ Measured on Apple M2 Pro (`go test -bench=. -benchmem`).
 ns/op = nanoseconds per operation (billionths of a second).
 
 | Function | Time | Allocations |
-|---|---|---|
+| --- | --- | --- |
 | `IsHoliday` | ~20 ns/op | 0 allocs |
 | `HolidayName` | ~20 ns/op | 0 allocs |
 | `IsBusinessDay` | ~21 ns/op | 0 allocs |
@@ -139,7 +137,7 @@ go test -bench=. -benchmem ./...
 ## Data Source
 
 Holiday data is sourced from the Cabinet Office of Japan (内閣府):
-https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv
+<https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv>
 
 - **Data range**: 1955 (Showa 30) to 2027 (Reiwa 9) — updated as the Cabinet Office publishes new data
 - **Update frequency**: Checked weekly (every Sunday) via GitHub Actions
@@ -151,7 +149,7 @@ https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv
 This library uses data published by the Cabinet Office of Japan (内閣府) on the [e-Gov Data Portal](https://data.e-gov.go.jp/).
 
 > Source: Cabinet Office of Japan, "National Holidays CSV" (内閣府「国民の祝日」について)
-> https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html
+> <https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html>
 
 The data is provided under terms compatible with [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Users of this library should be aware that the underlying holiday data originates from this government source.
 

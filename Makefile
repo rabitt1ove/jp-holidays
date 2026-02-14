@@ -32,6 +32,7 @@ fmt: check-tools
 ## テスト実行
 test:
 	go test -v -race -count=1 ./...
+	cd cmd/genholidays && go test -v -race -count=1 ./...
 
 ## ベンチマーク実行
 bench:

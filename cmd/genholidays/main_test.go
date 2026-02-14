@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,29 @@ import (
 func TestMain(m *testing.M) {
 	retryBaseDelay = 0 // Eliminate sleep in retry loops for all tests.
 	os.Exit(m.Run())
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func newHTTPResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
+
+func mustReadAll(t *testing.T, r io.Reader) string {
+	t.Helper()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading response body failed: %v", err)
+	}
+	return string(b)
 }
 
 // --- validateCSVURL ---
@@ -291,6 +315,31 @@ func TestResolveCSVURLFrom_Success(t *testing.T) {
 	}
 }
 
+func TestResolveCSVURL_Wrapper(t *testing.T) {
+	t.Parallel()
+
+	expectedURL := "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.String() != ckanAPIURL {
+				t.Fatalf("unexpected request URL: %s", req.URL.String())
+			}
+			if got := req.Header.Get("User-Agent"); got != userAgent {
+				t.Fatalf("User-Agent = %q, want %q", got, userAgent)
+			}
+			return newHTTPResponse(http.StatusOK, newCKANResponseJSON(expectedURL)), nil
+		}),
+	}
+
+	got, err := resolveCSVURL(client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != expectedURL {
+		t.Errorf("got %q, want %q", got, expectedURL)
+	}
+}
+
 func TestResolveCSVURLFrom_NonOKStatus(t *testing.T) {
 	t.Parallel()
 
@@ -395,6 +444,9 @@ func TestFetchWithRetry_Success(t *testing.T) {
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
+	if got := mustReadAll(t, reader); got != "data" {
+		t.Errorf("response body = %q, want %q", got, "data")
+	}
 }
 
 func TestFetchWithRetry_404_NoRetry(t *testing.T) {
@@ -431,6 +483,9 @@ func TestFetchWithRetry_ServerError_RetriesThenSucceeds(t *testing.T) {
 	}
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
+	}
+	if got := mustReadAll(t, reader); got != "data" {
+		t.Errorf("response body = %q, want %q", got, "data")
 	}
 	if attempts != 3 {
 		t.Errorf("expected 3 attempts, got %d", attempts)
@@ -472,6 +527,37 @@ func TestFetchWithRetry_429_RetriesThenSucceeds(t *testing.T) {
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
+	if got := mustReadAll(t, reader); got != "data" {
+		t.Errorf("response body = %q, want %q", got, "data")
+	}
+}
+
+func TestFetchCSV_Wrapper(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.String() {
+			case ckanAPIURL:
+				return newHTTPResponse(http.StatusOK, newCKANResponseJSON(fallbackURL1)), nil
+			case fallbackURL1:
+				return newHTTPResponse(http.StatusOK, "csvdata"), nil
+			default:
+				return newHTTPResponse(http.StatusNotFound, ""), nil
+			}
+		}),
+	}
+
+	reader, err := fetchCSV(client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reader == nil {
+		t.Fatal("expected non-nil reader")
+	}
+	if got := mustReadAll(t, reader); got != "csvdata" {
+		t.Errorf("response body = %q, want %q", got, "csvdata")
+	}
 }
 
 func TestFetchWithRetry_NetworkError(t *testing.T) {
@@ -510,6 +596,9 @@ func TestFetchCSVWithFallbacks_CKANFails_Fb1Succeeds(t *testing.T) {
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
+	if got := mustReadAll(t, reader); got != "csvdata" {
+		t.Errorf("response body = %q, want %q", got, "csvdata")
+	}
 }
 
 func TestFetchCSVWithFallbacks_CKANResolvesToSameAsFb1(t *testing.T) {
@@ -541,6 +630,9 @@ func TestFetchCSVWithFallbacks_CKANResolvesToSameAsFb1(t *testing.T) {
 	}
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
+	}
+	if got := mustReadAll(t, reader); got != "csvdata" {
+		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }
 
@@ -590,5 +682,8 @@ func TestFetchCSVWithFallbacks_Fb1Fails_Fb2Succeeds(t *testing.T) {
 	}
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
+	}
+	if got := mustReadAll(t, reader); got != "csvdata" {
+		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }

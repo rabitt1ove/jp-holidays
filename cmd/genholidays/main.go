@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/format"
@@ -23,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -49,6 +51,9 @@ const (
 	maxCSVResponseSize  = 5 * 1024 * 1024 // 5 MB for CSV data
 
 	userAgent = "jp-holidays-generator/1.0 (https://github.com/rabitt1ove/jp-holidays)"
+
+	// cacheMetadataPath stores validators used for conditional GET requests.
+	cacheMetadataPath = ".cache/fetch-metadata.json"
 )
 
 // retryBaseDelay is the base delay between retry attempts (variable for testing).
@@ -59,6 +64,30 @@ var retryBaseDelay = 2 * time.Second
 var allowedCSVHosts = map[string]bool{
 	"www8.cao.go.jp": true,
 	"www.cao.go.jp":  true,
+}
+
+type retryableError struct {
+	err error
+}
+
+func (e *retryableError) Error() string { return e.err.Error() }
+func (e *retryableError) Unwrap() error { return e.err }
+
+type fetchMetadata struct {
+	Entries map[string]cacheEntry `json:"entries"`
+}
+
+type cacheEntry struct {
+	ETag         string `json:"etag,omitempty"`
+	LastModified string `json:"last_modified,omitempty"`
+}
+
+type csvFetchResult struct {
+	Reader       io.Reader
+	URL          string
+	ETag         string
+	LastModified string
+	NotModified  bool
 }
 
 // ckanResponse represents the relevant parts of the CKAN API response.
@@ -88,12 +117,16 @@ func main() {
 
 	client := &http.Client{Timeout: httpTimeout}
 
-	body, err := fetchCSV(client)
+	result, err := fetchCSV(client)
 	if err != nil {
 		log.Fatalf("failed to fetch CSV: %v", err)
 	}
+	if result.NotModified {
+		log.Printf("source CSV not modified; skipping generation")
+		return
+	}
 
-	holidays, err := parseCSV(body)
+	holidays, err := parseCSV(result.Reader)
 	if err != nil {
 		log.Fatalf("failed to parse CSV: %v", err)
 	}
@@ -111,12 +144,16 @@ func main() {
 		log.Fatalf("failed to write output: %v", err)
 	}
 
+	if err := updateFetchMetadata(cacheMetadataPath, result.URL, result.ETag, result.LastModified); err != nil {
+		log.Printf("warning: failed to update fetch metadata: %v", err)
+	}
+
 	log.Printf("wrote %d holidays to %s", len(holidays), *output)
 }
 
 // resolveCSVURL queries the CKAN API to get the current CSV download URL.
 func resolveCSVURL(client *http.Client) (string, error) {
-	return resolveCSVURLFrom(client, ckanAPIURL)
+	return resolveCSVURLWithRetry(client, ckanAPIURL)
 }
 
 // resolveCSVURLFrom queries the given CKAN API endpoint to get the current CSV download URL.
@@ -131,12 +168,16 @@ func resolveCSVURLFrom(client *http.Client, apiURL string) (string, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("CKAN API request failed: %w", err)
+		return "", &retryableError{err: fmt.Errorf("CKAN API request failed: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("CKAN API returned status %d", resp.StatusCode)
+		err := fmt.Errorf("CKAN API returned status %d", resp.StatusCode)
+		if isRetryableStatus(resp.StatusCode) {
+			return "", &retryableError{err: err}
+		}
+		return "", err
 	}
 
 	var ckan ckanResponse
@@ -163,6 +204,29 @@ func resolveCSVURLFrom(client *http.Client, apiURL string) (string, error) {
 	return "", fmt.Errorf("no CSV resource found in CKAN response")
 }
 
+func resolveCSVURLWithRetry(client *http.Client, apiURL string) (string, error) {
+	var lastErr error
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			delay := retryBaseDelay * time.Duration(1<<(attempt-1))
+			log.Printf("  retrying CKAN API in %v (attempt %d/%d)", delay, attempt+1, maxRetries)
+			time.Sleep(delay)
+		}
+
+		resolvedURL, err := resolveCSVURLFrom(client, apiURL)
+		if err == nil {
+			return resolvedURL, nil
+		}
+		lastErr = err
+
+		var re *retryableError
+		if !errors.As(err, &re) {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
 // validateCSVURL checks that a URL points to an allowed host (SSRF prevention).
 func validateCSVURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
@@ -180,17 +244,26 @@ func validateCSVURL(rawURL string) error {
 
 // fetchCSV resolves the CSV URL and fetches it with retries.
 // Strategy: CKAN API -> fallback URL 1 -> fallback URL 2.
-func fetchCSV(client *http.Client) (io.Reader, error) {
+func fetchCSV(client *http.Client) (csvFetchResult, error) {
 	return fetchCSVWithFallbacks(client, ckanAPIURL, fallbackURL1, fallbackURL2)
 }
 
 // fetchCSVWithFallbacks resolves the CSV URL via the given CKAN API and fetches it with retries.
-func fetchCSVWithFallbacks(client *http.Client, ckanURL, fb1, fb2 string) (io.Reader, error) {
+func fetchCSVWithFallbacks(client *http.Client, ckanURL, fb1, fb2 string) (csvFetchResult, error) {
+	return fetchCSVWithFallbacksAndMetadata(client, ckanURL, fb1, fb2, cacheMetadataPath)
+}
+
+func fetchCSVWithFallbacksAndMetadata(client *http.Client, ckanURL, fb1, fb2, metadataPath string) (csvFetchResult, error) {
 	// Build ordered list of URLs to try.
 	var urls []string
+	meta, err := loadFetchMetadata(metadataPath)
+	if err != nil {
+		log.Printf("  warning: failed to load fetch metadata: %v", err)
+		meta = fetchMetadata{Entries: map[string]cacheEntry{}}
+	}
 
 	// Try CKAN API first.
-	if resolved, err := resolveCSVURLFrom(client, ckanURL); err != nil {
+	if resolved, err := resolveCSVURLWithRetry(client, ckanURL); err != nil {
 		log.Printf("  CKAN API failed: %v (falling back to direct URLs)", err)
 	} else {
 		urls = append(urls, resolved)
@@ -205,18 +278,30 @@ func fetchCSVWithFallbacks(client *http.Client, ckanURL, fb1, fb2 string) (io.Re
 
 	var lastErr error
 	for _, url := range urls {
-		reader, err := fetchWithRetry(client, url)
+		entry := meta.Entries[url]
+		reader, etag, lastModified, notModified, err := fetchWithRetry(client, url, entry.ETag, entry.LastModified)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		return reader, nil
+		if notModified {
+			return csvFetchResult{
+				URL:         url,
+				NotModified: true,
+			}, nil
+		}
+		return csvFetchResult{
+			Reader:       reader,
+			URL:          url,
+			ETag:         etag,
+			LastModified: lastModified,
+		}, nil
 	}
-	return nil, fmt.Errorf("all URLs failed, last error: %w", lastErr)
+	return csvFetchResult{}, fmt.Errorf("all URLs failed, last error: %w", lastErr)
 }
 
 // fetchWithRetry fetches a URL with exponential backoff retries.
-func fetchWithRetry(client *http.Client, url string) (io.Reader, error) {
+func fetchWithRetry(client *http.Client, url, etag, lastModified string) (io.Reader, string, string, bool, error) {
 	var lastErr error
 	for attempt := range maxRetries {
 		if attempt > 0 {
@@ -228,9 +313,15 @@ func fetchWithRetry(client *http.Client, url string) (io.Reader, error) {
 		log.Printf("fetching %s", url)
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
+			return nil, "", "", false, fmt.Errorf("creating request: %w", err)
 		}
 		req.Header.Set("User-Agent", userAgent)
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+		if lastModified != "" {
+			req.Header.Set("If-Modified-Since", lastModified)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -239,9 +330,12 @@ func fetchWithRetry(client *http.Client, url string) (io.Reader, error) {
 			continue
 		}
 
-		if resp.StatusCode == http.StatusTooManyRequests ||
-			resp.StatusCode == http.StatusServiceUnavailable ||
-			resp.StatusCode >= 500 {
+		if resp.StatusCode == http.StatusNotModified {
+			resp.Body.Close()
+			return nil, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), true, nil
+		}
+
+		if isRetryableStatus(resp.StatusCode) {
 			resp.Body.Close()
 			lastErr = fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
 			log.Printf("  failed: status %d (retryable)", resp.StatusCode)
@@ -250,14 +344,62 @@ func fetchWithRetry(client *http.Client, url string) (io.Reader, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
-			return nil, fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
+			return nil, "", "", false, fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
 		}
 
 		limited := io.LimitReader(resp.Body, maxCSVResponseSize)
 		decoder := japanese.ShiftJIS.NewDecoder()
-		return transform.NewReader(limited, decoder), nil
+		return transform.NewReader(limited, decoder), resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), false, nil
 	}
-	return nil, lastErr
+	return nil, "", "", false, lastErr
+}
+
+func isRetryableStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests ||
+		statusCode == http.StatusServiceUnavailable ||
+		statusCode >= 500
+}
+
+func loadFetchMetadata(path string) (fetchMetadata, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fetchMetadata{Entries: map[string]cacheEntry{}}, nil
+		}
+		return fetchMetadata{}, err
+	}
+
+	var meta fetchMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return fetchMetadata{}, err
+	}
+	if meta.Entries == nil {
+		meta.Entries = map[string]cacheEntry{}
+	}
+	return meta, nil
+}
+
+func updateFetchMetadata(path, sourceURL, etag, lastModified string) error {
+	if sourceURL == "" {
+		return nil
+	}
+	meta, err := loadFetchMetadata(path)
+	if err != nil {
+		return err
+	}
+	meta.Entries[sourceURL] = cacheEntry{
+		ETag:         etag,
+		LastModified: lastModified,
+	}
+
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 // parseCSV parses the Cabinet Office holiday CSV and validates its format.

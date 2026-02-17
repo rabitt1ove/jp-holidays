@@ -437,9 +437,15 @@ func TestFetchWithRetry_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	reader, etag, lastModified, notModified, err := fetchWithRetry(ts.Client(), ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if notModified {
+		t.Fatal("unexpected not-modified response")
+	}
+	if etag != "" || lastModified != "" {
+		t.Fatalf("unexpected validators: etag=%q lastModified=%q", etag, lastModified)
 	}
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
@@ -457,7 +463,7 @@ func TestFetchWithRetry_404_NoRetry(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	_, err := fetchWithRetry(ts.Client(), ts.URL)
+	_, _, _, _, err := fetchWithRetry(ts.Client(), ts.URL, "", "")
 	if err == nil {
 		t.Fatal("expected error for 404")
 	}
@@ -477,7 +483,7 @@ func TestFetchWithRetry_ServerError_RetriesThenSucceeds(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	reader, _, _, _, err := fetchWithRetry(ts.Client(), ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -500,7 +506,7 @@ func TestFetchWithRetry_AllRetriesFail_503(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	_, err := fetchWithRetry(ts.Client(), ts.URL)
+	_, _, _, _, err := fetchWithRetry(ts.Client(), ts.URL, "", "")
 	if err == nil {
 		t.Fatal("expected error after all retries fail")
 	}
@@ -520,7 +526,7 @@ func TestFetchWithRetry_429_RetriesThenSucceeds(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	reader, err := fetchWithRetry(ts.Client(), ts.URL)
+	reader, _, _, _, err := fetchWithRetry(ts.Client(), ts.URL, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -529,6 +535,37 @@ func TestFetchWithRetry_429_RetriesThenSucceeds(t *testing.T) {
 	}
 	if got := mustReadAll(t, reader); got != "data" {
 		t.Errorf("response body = %q, want %q", got, "data")
+	}
+}
+
+func TestFetchWithRetry_ConditionalGET_304(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("If-None-Match"); got != `"etag-1"` {
+			t.Fatalf("If-None-Match = %q, want %q", got, `"etag-1"`)
+		}
+		if got := r.Header.Get("If-Modified-Since"); got != "Wed, 01 Jan 2025 00:00:00 GMT" {
+			t.Fatalf("If-Modified-Since = %q, unexpected", got)
+		}
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer ts.Close()
+
+	reader, _, _, notModified, err := fetchWithRetry(
+		ts.Client(),
+		ts.URL,
+		`"etag-1"`,
+		"Wed, 01 Jan 2025 00:00:00 GMT",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !notModified {
+		t.Fatal("expected not-modified=true")
+	}
+	if reader != nil {
+		t.Fatal("reader should be nil on 304")
 	}
 }
 
@@ -548,14 +585,17 @@ func TestFetchCSV_Wrapper(t *testing.T) {
 		}),
 	}
 
-	reader, err := fetchCSV(client)
+	result, err := fetchCSV(client)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reader == nil {
+	if result.NotModified {
+		t.Fatal("unexpected not-modified result")
+	}
+	if result.Reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	if got := mustReadAll(t, reader); got != "csvdata" {
+	if got := mustReadAll(t, result.Reader); got != "csvdata" {
 		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }
@@ -563,9 +603,56 @@ func TestFetchCSV_Wrapper(t *testing.T) {
 func TestFetchWithRetry_NetworkError(t *testing.T) {
 	t.Parallel()
 
-	_, err := fetchWithRetry(&http.Client{Timeout: 1 * time.Second}, closedServerURL())
+	_, _, _, _, err := fetchWithRetry(&http.Client{Timeout: 1 * time.Second}, closedServerURL(), "", "")
 	if err == nil {
 		t.Fatal("expected error for network failure")
+	}
+}
+
+// --- resolveCSVURLWithRetry ---
+
+func TestResolveCSVURLWithRetry_RetryableStatusThenSuccess(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprint(w, newCKANResponseJSON(fallbackURL1))
+	}))
+	defer ts.Close()
+
+	got, err := resolveCSVURLWithRetry(ts.Client(), ts.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != fallbackURL1 {
+		t.Fatalf("got %q, want %q", got, fallbackURL1)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestResolveCSVURLWithRetry_NonRetryableStatus_NoRetry(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	_, err := resolveCSVURLWithRetry(ts.Client(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
 }
 
@@ -589,14 +676,14 @@ func TestFetchCSVWithFallbacks_CKANFails_Fb1Succeeds(t *testing.T) {
 	}))
 	defer fb2.Close()
 
-	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
+	result, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reader == nil {
+	if result.Reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	if got := mustReadAll(t, reader); got != "csvdata" {
+	if got := mustReadAll(t, result.Reader); got != "csvdata" {
 		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }
@@ -624,14 +711,14 @@ func TestFetchCSVWithFallbacks_CKANResolvesToSameAsFb1(t *testing.T) {
 	}))
 	defer fb2.Close()
 
-	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
+	result, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fb1.URL, fb2.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reader == nil {
+	if result.Reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	if got := mustReadAll(t, reader); got != "csvdata" {
+	if got := mustReadAll(t, result.Reader); got != "csvdata" {
 		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }
@@ -676,14 +763,14 @@ func TestFetchCSVWithFallbacks_Fb1Fails_Fb2Succeeds(t *testing.T) {
 	}))
 	defer ckan.Close()
 
-	reader, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fail.URL, ok.URL)
+	result, err := fetchCSVWithFallbacks(&http.Client{Timeout: 5 * time.Second}, ckan.URL, fail.URL, ok.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reader == nil {
+	if result.Reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	if got := mustReadAll(t, reader); got != "csvdata" {
+	if got := mustReadAll(t, result.Reader); got != "csvdata" {
 		t.Errorf("response body = %q, want %q", got, "csvdata")
 	}
 }

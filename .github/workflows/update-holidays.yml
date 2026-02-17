@@ -26,11 +26,27 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Restore fetch metadata cache
+        id: fetch-meta-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: cmd/genholidays/.cache/fetch-metadata.json
+          key: holiday-fetch-metadata-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            holiday-fetch-metadata-${{ runner.os }}-
+
       - name: Generate holiday data
         run: cd cmd/genholidays && go run main.go -output ../../holidays_data.go
 
       - name: Run tests
         run: go test -race -count=1 ./...
+
+      - name: Save fetch metadata cache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: cmd/genholidays/.cache/fetch-metadata.json
+          key: ${{ steps.fetch-meta-cache.outputs.cache-primary-key }}
 
       - name: Check for changes
         id: check

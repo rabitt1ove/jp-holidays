@@ -1,8 +1,10 @@
-package jpholiday
+package jpholiday_test
 
 import (
 	"testing"
 	"time"
+
+	. "github.com/rabitt1ove/jp-holidays"
 )
 
 func TestIsBusinessDay(t *testing.T) {
@@ -184,9 +186,9 @@ func TestNextBusinessDay_ZeroOnExhaustion(t *testing.T) {
 	t.Parallel()
 
 	cal := New()
-	// Add custom holidays for maxSearchDays consecutive days to exhaust the loop.
+	// Add enough consecutive custom holidays to exceed the internal search limit.
 	start := d(2026, time.January, 1)
-	for i := 0; i < maxSearchDays; i++ {
+	for i := 0; i < 400; i++ {
 		day := start.AddDate(0, 0, i)
 		cal.AddCustomHoliday(day, "blocked")
 	}
@@ -201,7 +203,7 @@ func TestPreviousBusinessDay_ZeroOnExhaustion(t *testing.T) {
 
 	cal := New()
 	start := d(2026, time.December, 31)
-	for i := 0; i < maxSearchDays; i++ {
+	for i := 0; i < 400; i++ {
 		day := start.AddDate(0, 0, -i)
 		cal.AddCustomHoliday(day, "blocked")
 	}

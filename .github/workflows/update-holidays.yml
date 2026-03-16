@@ -61,7 +61,7 @@ jobs:
       - name: Generate creator app token
         if: steps.check.outputs.changed == 'true'
         id: app-creator
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_CREATOR_ID }}
           private-key: ${{ secrets.APP_CREATOR_PRIVATE_KEY }}
@@ -69,7 +69,7 @@ jobs:
       - name: Generate merger app token
         if: steps.check.outputs.changed == 'true'
         id: app-merger
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_MERGER_ID }}
           private-key: ${{ secrets.APP_MERGER_PRIVATE_KEY }}
